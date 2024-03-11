@@ -1,0 +1,4 @@
+to_sync/busking_songs
+to_sync/concert_songs
+to_sync/sequences/*
+!to_sync/sequences/*.py

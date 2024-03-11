@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"saveAndRun": {
+			"commands": [
+				{
+					"match": "\\.py$",
+					"isAsync": true,
+					// "wsl": true,
+					// "cmd": "sh sync-pc-to-pi.sh"
+				},
+			]
+		}
+	}
+}

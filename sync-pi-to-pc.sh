@@ -1,0 +1,1 @@
+rsync -av interlucid@interlucidpi:~/Music/neopixels/* to_sync/
