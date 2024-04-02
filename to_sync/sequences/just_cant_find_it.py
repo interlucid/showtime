@@ -1,97 +1,157 @@
 import math
 
+import config
 import utils
+import parse_midi
 
+song_name = "just_cant_find_it"
 bpm = 90
 song_measure_ms = utils.get_measure_ms(bpm)
 song_timing = utils.get_song_timing_constants(song_measure_ms)
 
 
-def get_piano_measures():
-    piano_section_measures = [17, 34, 42]
-    bumpy_piano_measures = [
-        utils.expand_animation_pattern(piano_section_double_measure, list(range(8)))
-        for piano_section_double_measure in piano_section_measures
-    ]
-    return utils.flatten(bumpy_piano_measures) + [
-        # last chorus is one measure short
-        50 + measure
-        for measure in list(range(7))
-    ]
-
-
-piano_measures = get_piano_measures()
-piano_start_measures = [17, 21, 34, 38, 42, 46, 50, 54]
-global current_piano_start_measure
-current_piano_start_measure = 0
-# indexed by the measure where the pattern starts
-# however the pattern is four measures long
-piano_pattern_pixel_locations = {}
-piano_pattern_config = utils.get_pattern_config(
-    song_timing["song_quarter_beat_ms"],
-    4,
-    64,
-    20,
-    1,
+off_beat_notes = parse_midi.get_first_track_notes_and_durations(
+    f"{config.sequences_directory}/{song_name}/off_beat.mid", bpm
 )
-piano_pattern_start_segments = (
-    # for every measure, add the starting motif plus the appropriate offset
-    [(measure * 16) + note for note in [0, 3, 4, 5, 6] for measure in [0, 1, 2, 3]]
-    # first measure extra note
-    + [14]
-    # third measure extra notes
-    + [note + 2 * 16 for note in [12, 14]]
-)
+off_beat_sectors_map = {}
+off_beat_note_values = map(lambda midi_note: midi_note["note"], off_beat_notes)
+unique_off_beat_notes = list(set(off_beat_note_values))
+for note_index, note in enumerate(unique_off_beat_notes):
+    off_beat_sectors_map[note] = note_index
+num_off_beat_sectors = len(off_beat_sectors_map)
+off_beat_slide_ms = 1000
+off_beat_color = (100, 0, 200)
 
 
-def get_piano_pattern_timing(sequence_config, pattern_config):
-    pattern_timing = {}
+def fill_applicable_off_beats(sequence_config):
     song = sequence_config["song"]
-    # update if necessary
-    if song["current_measure"] in piano_start_measures:
-        global current_piano_start_measure
-        current_piano_start_measure = song["current_measure"]
-    # always set
-    pattern_timing["current_pattern_instance"] = current_piano_start_measure
-    pattern_timing["basic_ms_since_pattern_duration_start"] = (
-        song["ms_since_song_start"]
-        - current_piano_start_measure * song_timing["song_measure_ms"]
-    )
-    return pattern_timing
 
-
-def get_piano_pixel_key(song, pattern_timing):
-    return current_piano_start_measure
-
-
-def fill_applicable_pianos(sequence_config):
-    song = sequence_config["song"]
-    pattern_timing = get_piano_pattern_timing(sequence_config, piano_pattern_config)
-    if song["current_measure"] in piano_measures:
-        utils.basic_populate_pixel_key(
-            sequence_config,
-            piano_pattern_config,
-            piano_pattern_pixel_locations,
-            piano_measures,
-            get_piano_pattern_timing,
-        )
-
-        base_color = (0, 70, 250)
-
-        # fill for all applicable starting segments
-        # for pattern_start_segment in [0, 16, 32, 48]:
-        for pattern_start_segment in piano_pattern_start_segments:
-            utils.fill_staggered_fade_in_out(
-                sequence_config,
-                piano_pattern_config,
-                piano_pattern_pixel_locations,
-                pattern_timing["basic_ms_since_pattern_duration_start"],
-                base_color,
-                pattern_start_segment,
-                get_piano_pixel_key,
-                4,
+    # find the MIDI note that we're currently at
+    for off_beat_index, off_beat in enumerate(off_beat_notes):
+        note_start_time = off_beat["start_time"]
+        duration = off_beat["duration"]
+        if (
+            song["ms_since_song_start"] >= note_start_time
+            and song["ms_since_song_start"] <= note_start_time + duration
+        ):
+            ms_since_fade_start = song["ms_since_song_start"] - note_start_time
+            starting_off_beat_pixel = utils.get_sector_starting_pixel(
+                off_beat_sectors_map[off_beat["note"]],
+                len(unique_off_beat_notes),
             )
+            ending_off_beat_pixel = utils.get_sector_ending_pixel(
+                off_beat_sectors_map[off_beat["note"]],
+                len(unique_off_beat_notes),
+            )
+            # if we're in the first bit of time for this note, play the frame of the sliding animation
+            # otherwise hold
+            if (
+                off_beat_index > 0
+                and song["ms_since_song_start"] <= note_start_time + off_beat_slide_ms
+            ):
+                # get last pixel positions
+                last_starting_off_beat_pixel = utils.get_sector_starting_pixel(
+                    off_beat_sectors_map[off_beat_notes[off_beat_index - 1]["note"]],
+                    len(unique_off_beat_notes),
+                )
+                last_ending_off_beat_pixel = utils.get_sector_ending_pixel(
+                    off_beat_sectors_map[off_beat_notes[off_beat_index - 1]["note"]],
+                    len(unique_off_beat_notes),
+                )
+                starting_off_beat_pixel_diff = (
+                    starting_off_beat_pixel - last_starting_off_beat_pixel
+                )
+                ending_off_beat_pixel_diff = (
+                    ending_off_beat_pixel - last_ending_off_beat_pixel
+                )
+                linear_move_multiplier = (
+                    song["ms_since_song_start"] - note_start_time
+                ) / off_beat_slide_ms
+                move_multiplier = utils.get_parametric_blend(linear_move_multiplier)
+                # print(
+                #     f"lmm: {linear_move_multiplier}, mm: {move_multiplier}", flush=True
+                # )
+                slide_starting_off_beat_pixel = (
+                    last_starting_off_beat_pixel
+                    + move_multiplier * starting_off_beat_pixel_diff
+                )
+                slide_ending_off_beat_pixel = (
+                    last_ending_off_beat_pixel
+                    + move_multiplier * ending_off_beat_pixel_diff
+                )
+                utils.fill_pixels_in_center_split_mirror_range(
+                    sequence_config["pixels"],
+                    slide_starting_off_beat_pixel,
+                    slide_ending_off_beat_pixel,
+                    off_beat_color,
+                    2.5,
+                    0,
+                )
+            else:
+                utils.fill_pixels_in_center_split_mirror_range(
+                    sequence_config["pixels"],
+                    starting_off_beat_pixel,
+                    ending_off_beat_pixel,
+                    off_beat_color,
+                    2.5,
+                    0,
+                )
+            break
+
+
+piano_notes = parse_midi.get_first_track_notes_and_durations(
+    f"{config.sequences_directory}/{song_name}/piano.mid", bpm
+)
+piano_pixel_locations = {}
+num_piano_sectors = 12
+
+
+organ_notes = parse_midi.get_first_track_notes_and_durations(
+    f"{config.sequences_directory}/{song_name}/organ.mid", bpm
+)
+organ_color = (100, 0, 10)
+organ_size = config.num_pixels / 15
+
+
+def fill_applicable_organs(sequence_config):
+    song = sequence_config["song"]
+
+    # find the MIDI note that we're currently at
+    for organ in organ_notes:
+        note_start_time = organ["start_time"]
+        duration = organ["duration"]
+        if (
+            song["ms_since_song_start"] >= note_start_time
+            and song["ms_since_song_start"] <= note_start_time + duration
+        ):
+            utils.fill_pixels_in_center_split_mirror_range(
+                sequence_config["pixels"],
+                0,
+                organ_size,
+                organ_color,
+                1,
+                1,
+                True,
+            )
+            utils.fill_pixels_in_center_split_mirror_range(
+                sequence_config["pixels"],
+                config.num_pixels - organ_size,
+                config.num_pixels,
+                organ_color,
+                1,
+                1,
+                True,
+            )
+            break
 
 
 def play_current_frame(sequence_config):
-    fill_applicable_pianos(sequence_config)
+    fill_applicable_off_beats(sequence_config)
+    utils.fill_applicable_notes(
+        sequence_config,
+        piano_notes,
+        piano_pixel_locations,
+        num_piano_sectors,
+        (0, 70, 250),
+    )
+    fill_applicable_organs(sequence_config)

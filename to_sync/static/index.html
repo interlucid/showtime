@@ -1,0 +1,114 @@
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Interlucid's super secret high-tech LED controller</title>
+        <link rel="stylesheet" href="/bootstrap.min.css" />
+    </head>
+    <body>
+        <div class="container py-5">
+            <h1 class="mb-5">
+                Interlucid's super secret high-tech LED controller
+            </h1>
+            <h2>Current song</h2>
+            <p id="current-song" class="text-capitalize fs-1 fw-bold"></p>
+            <div class="mb-3">
+                <button id="play-song" class="btn btn-success p-5 fs-2">
+                    Play
+                </button>
+                <button id="stop-song" class="btn btn-danger p-5 fs-2">
+                    Stop
+                </button>
+            </div>
+            <div class="mb-3">
+                <button id="previous-song" class="btn btn-secondary p-5 fs-2">
+                    Previous
+                </button>
+                <button id="next-song" class="btn btn-secondary p-5 fs-2">
+                    Next
+                </button>
+            </div>
+            <div class="mb-5">
+                <label for="song-measure" class="form-label"
+                    >Song Measure</label
+                >
+                <input
+                    id="song-measure"
+                    type="text"
+                    class="form-control"
+                    value="0"
+                />
+            </div>
+            <h2>Setlist</h2>
+            <ol id="setlist" class="text-capitalize"></ol>
+        </div>
+    </body>
+    <script type="module">
+        const songListResponse = await fetch(`/song_list.json`);
+        const songList = await songListResponse.json();
+        let currentSongIndex = 0;
+
+        const formatSongTitle = (unformattedSongTitle) => {
+            return unformattedSongTitle.replace(/_/g, " ");
+        };
+        const host = `http://192.168.4.34:5001`;
+
+        const playSong = () => {
+            const song_start_measure =
+                document.getElementById(`song-measure`).value;
+            fetch(`${host}/play`, {
+                method: `POST`,
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    song_name: songList[currentSongIndex],
+                    song_start_beat: song_start_measure * 4,
+                }),
+            });
+        };
+        document
+            .getElementById(`play-song`)
+            .addEventListener(`click`, playSong);
+
+        const stopSong = () => {
+            fetch(`${host}/stop`, {
+                method: `POST`,
+            });
+        };
+        document
+            .getElementById(`stop-song`)
+            .addEventListener(`click`, stopSong);
+
+        const previousSong = () => {
+            currentSongIndex--;
+            if (currentSongIndex < 0) currentSongIndex = songList.length - 1;
+            updateSongDisplay();
+        };
+        document
+            .getElementById(`previous-song`)
+            .addEventListener(`click`, previousSong);
+
+        const nextSong = () => {
+            currentSongIndex++;
+            if (currentSongIndex >= songList.length) currentSongIndex = 0;
+            updateSongDisplay();
+        };
+        document
+            .getElementById(`next-song`)
+            .addEventListener(`click`, nextSong);
+
+        const updateSongDisplay = () => {
+            const currentSong = formatSongTitle(songList[currentSongIndex]);
+            document.getElementById(`current-song`).textContent = currentSong;
+        };
+
+        updateSongDisplay();
+
+        for (let song of songList) {
+            const listItem = document.createElement(`li`);
+            listItem.textContent = formatSongTitle(song);
+            document.getElementById(`setlist`).appendChild(listItem);
+        }
+    </script>
+</html>

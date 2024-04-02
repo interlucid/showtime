@@ -62,11 +62,6 @@ for pluck_index, pluck_note in enumerate(unique_pluck_notes):
 
 def fill_applicable_plucks(sequence_config):
     song = sequence_config["song"]
-    # if we're where a note should be played
-    # print(
-    #     f"msss: {song['ms_since_song_start']}, nst: {note_start_time}, d: {duration}",
-    #     flush=True,
-    # )
 
     # find the MIDI note that we're currently at
     for pluck in pluck_notes:
@@ -108,16 +103,6 @@ def fill_applicable_plucks(sequence_config):
                 color,
                 2,
             )
-            # sequence_config["pixels"].fill(
-            #     utils.get_fade_out_color(
-            #         ms_since_fade_start,
-            #         duration,
-            #         tuple(
-            #             round(x * (pluck["velocity"] / 127)) for x in (150, 150, 150)
-            #         ),
-            #     )
-            # )
-            # break
 
 
 def play_current_frame(sequence_config):

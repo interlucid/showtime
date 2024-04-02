@@ -161,24 +161,30 @@ def fill_average(pixels, color):
         pixels[pindex] = tuple([round((x + y) / 2) for x, y in zip(*[pixel, color])])
 
 
-# size is the number of additional pixels (radius)
+# size is what the original radius is multiplied by
+# add will add these color values (overflow safe) to any existing color on the pixel
+# range_start and range_end will limit affected pixels to the range specified (useful for center split with large size)
 def fill_pixels_in_range(
-    pixels, starting_pixel, ending_pixel, color, size=1, hardness=1, add=False
+    pixels,
+    starting_pixel,
+    ending_pixel,
+    color,
+    size=1,
+    hardness=1,
+    add=False,
+    range_start=0,
+    range_end=config.num_pixels,
 ):
-    num_pixels = len(pixels)
-    # if starting_ignore_pixel == math.inf:
-    #     starting_ignore_pixel = num_pixels
-    original_size = ending_pixel - starting_pixel
-    # this has out of bounds protection
-    sized_starting_pixel = max(starting_pixel - round(original_size * abs(1 - size)), 0)
-    sized_ending_pixel = min(
-        ending_pixel + round(original_size * abs(1 - size)), num_pixels - 1
-    )
     middle_pixel = (starting_pixel + ending_pixel) / 2
-    radius = max(middle_pixel - sized_starting_pixel, 1)
-    for pixel_index in range(sized_starting_pixel, sized_ending_pixel):
+    original_radius = max(middle_pixel - starting_pixel, 1)
+    radius = original_radius * size
+    for pixel_index in range(round(range_start), round(range_end)):
+        pixel_distance_from_radius = abs(middle_pixel - pixel_index)
+        # don't try to render anything if this pixel is too far away from the radius
+        if pixel_distance_from_radius > radius:
+            continue
         # get this pixel's color strength
-        color_strength = (1 - (abs(middle_pixel - pixel_index) / radius)) ** (
+        color_strength = (1 - (pixel_distance_from_radius / radius)) ** (
             # this multiplier may make some pixels be off instead of a value at lower light levels
             # but at higher levels it should be fine
             1.5
@@ -206,9 +212,9 @@ def fill_pixels_in_center_split_mirror_range(
     add=False,
 ):
     num_pixels = len(pixels)
-    strip_middle_pixel = math.trunc(num_pixels / 2)
-    half_starting_pixel = max(math.trunc(starting_pixel / 2), 0)
-    half_ending_pixel = min(math.trunc(ending_pixel / 2), strip_middle_pixel)
+    strip_middle_pixel = num_pixels / 2
+    half_starting_pixel = max(starting_pixel / 2, 0)
+    half_ending_pixel = min(ending_pixel / 2, strip_middle_pixel)
     fill_pixels_in_range(
         pixels,
         half_starting_pixel,
@@ -217,8 +223,45 @@ def fill_pixels_in_center_split_mirror_range(
         size,
         hardness,
         add,
+        0,
+        num_pixels / 2,
     )
     fill_pixels_in_range(
+        pixels,
+        num_pixels - half_ending_pixel,
+        num_pixels - half_starting_pixel,
+        color,
+        size,
+        hardness,
+        add,
+        num_pixels / 2,
+        num_pixels,
+    )
+
+
+def fill_pixels_in_four_split_mirror_range(
+    pixels,
+    starting_pixel,
+    ending_pixel,
+    color,
+    size=1,
+    hardness=1,
+    add=False,
+):
+    num_pixels = len(pixels)
+    strip_middle_pixel = num_pixels / 2
+    half_starting_pixel = max(starting_pixel / 2, 0)
+    half_ending_pixel = min(ending_pixel / 2, strip_middle_pixel)
+    fill_pixels_in_center_split_mirror_range(
+        pixels,
+        half_starting_pixel,
+        half_ending_pixel,
+        color,
+        size,
+        hardness,
+        add,
+    )
+    fill_pixels_in_center_split_mirror_range(
         pixels,
         num_pixels - half_ending_pixel,
         num_pixels - half_starting_pixel,
@@ -230,8 +273,8 @@ def fill_pixels_in_center_split_mirror_range(
 
 
 # for stuff like the dyoo in Dream Killa and all of Unlimited
-def get_exponential_dropoff(x):
-    return round((config.num_pixels - 1) * (-(x ** (2 / 5)) + 1))
+def get_exponential_dropoff(x, exponent=2 / 5):
+    return round((config.num_pixels - 1) * (-(x**exponent) + 1))
 
 
 # ease in and out (for the woo in Your Dream)
@@ -268,8 +311,8 @@ def get_fade_out_color(ms_since_fade_start, increment_ms, base_color):
     ]
 
 
-def get_fade_in_out_color(ms_since_fade_start, increment_ms, base_color):
-    if ms_since_fade_start < 0 or ms_since_fade_start > increment_ms:
+def get_fade_in_out_color(ms_since_fade_start, duration, base_color, fade_amount=1):
+    if ms_since_fade_start < 0 or ms_since_fade_start > duration:
         print(
             "get_fade_in_out_color returning black since increment is out of range",
             flush=True,
@@ -278,7 +321,8 @@ def get_fade_in_out_color(ms_since_fade_start, increment_ms, base_color):
     return tuple(
         map(
             lambda color_part: math.trunc(
-                color_part * (-abs(2 * ms_since_fade_start / increment_ms - 1) + 1)
+                color_part
+                * (-abs(2 * ms_since_fade_start / duration - 1) * fade_amount + 1)
             ),
             base_color,
         )
@@ -490,3 +534,32 @@ def expand_animation_pattern(arbitrary_start_time_block: int, pattern: [int]):
         map(lambda offset: offset + arbitrary_start_time_block, pattern)
     )
     return animation_time_blocks
+
+
+def fill_applicable_notes(sequence_config, notes, pixel_locations, num_sectors, color):
+    song = sequence_config["song"]
+    ms_since_song_start = song["ms_since_song_start"]
+
+    # find the MIDI note that we're currently at
+    for index, doo_dee in enumerate(notes):
+        note_start_time = doo_dee["start_time"]
+        duration = doo_dee["duration"]
+        if (
+            ms_since_song_start >= note_start_time
+            and ms_since_song_start <= note_start_time + duration
+        ):
+            # don't allow for two of the same index to be sequential
+            while index not in pixel_locations or (
+                index - 1 in pixel_locations
+                and pixel_locations[index] == pixel_locations[index - 1]
+            ):
+                pixel_locations[index] = random.randint(0, num_sectors - 1)
+            ms_since_fade_start = note_start_time + duration - ms_since_song_start
+            fill_pixels_in_range(
+                sequence_config["pixels"],
+                get_sector_starting_pixel(pixel_locations[index], num_sectors),
+                get_sector_ending_pixel(pixel_locations[index], num_sectors),
+                get_fade_in_out_color(ms_since_fade_start, duration, color),
+                hardness=0,
+                add=True,
+            )

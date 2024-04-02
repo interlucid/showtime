@@ -10,6 +10,9 @@ import asyncio
 import board
 import busio
 import digitalio
+import flask
+import flask_cors
+
 import os
 
 import PIL.Image
@@ -27,6 +30,10 @@ import vlc
 
 import config
 import utils
+
+
+app = flask.Flask(__name__)
+flask_cors.CORS(app)
 
 pp = pprint.PrettyPrinter(indent=4)
 
@@ -111,6 +118,7 @@ update_song_medias_in_order()
 
 
 current_song_index = 0
+song_name = available_songs_in_order[current_song_index]
 
 global time_since_last_display_update
 time_since_last_display_update = time.time()
@@ -126,7 +134,7 @@ def display_text(text, x=10, y=10):
 
 
 def display_current_song():
-    display_text(available_songs_in_order[current_song_index].replace("_", " ").title())
+    display_text(song_name.replace("_", " ").title())
 
 
 def display_current_mode():
@@ -147,17 +155,26 @@ class LEDServerThread(threading.Thread):
 
     def run(self):
         led_server_process = subprocess.Popen(
-            ["sudo", "flask", "--app", "led_server", "run", "--debug"],
+            [
+                "sudo",
+                "flask",
+                "--app",
+                "led_server",
+                "run",
+                "--host=0.0.0.0",
+                "--debug",
+            ],
             stdout=subprocess.PIPE,
             stderr=sys.stderr,
         )
         print(f"sequence process spawned with PID: {led_server_process.pid}")
         while led_server_process.poll() is None:
             # this blocks until it receives a newline
-            print("SERVER > ", led_server_process.stdout.readline())
+            print("LED > ", led_server_process.stdout.readline())
 
 
 ledServerThread = LEDServerThread()
+
 
 modules = {}
 for module_name in available_songs_in_order:
@@ -182,17 +199,15 @@ requests.post(
 
 def play_media():
     print("playing media")
-    global media, current_song_index
-    song_name = available_songs_in_order[current_song_index]
+    global media, song_name, current_song_index, song_start_beat
+    current_song_index = available_songs_in_order.index(song_name)
     # media = vlc.MediaPlayer(f"busking_songs/{song_name}.wav")
     media.set_media(song_medias_in_order[current_song_index])
     sequence_module = modules[song_name]
     if hasattr(sequence_module, "song_timing"):
-        skip_ms = round(
-            config.song_start_beat * sequence_module.song_timing["song_beat_ms"]
-        )
+        skip_ms = round(song_start_beat * sequence_module.song_timing["song_beat_ms"])
     else:
-        skip_ms = int(sequence_module.beats_to_ms(config.song_start_beat))
+        skip_ms = int(sequence_module.beats_to_ms(song_start_beat))
     print(f"skip_ms is {skip_ms}")
     media.play()
     media.set_time(skip_ms)
@@ -207,6 +222,7 @@ def stop_media():
 connection_error_message = "Unable to connect to the server. You might need to wait a few seconds if the server is still starting."
 
 
+@app.post("/play")
 async def play_show():
     try:
         # stop show in case one is already playing
@@ -218,20 +234,36 @@ async def play_show():
         show_delay_ms = 5
         # show_delay_ms = 500
         playback_start_time = utils.get_now_millis() + show_delay_ms
+        global song_name, song_start_beat
+        # web request data
+        if "song_name" in flask.request.json:
+            song_name = flask.request.json["song_name"]
+        # button data (default)
+        else:
+            song_name = available_songs_in_order[current_song_index]
+        # web request data
+        if "song_start_beat" in flask.request.json:
+            song_start_beat = int(flask.request.json["song_start_beat"])
+        # button data (default)
+        else:
+            song_start_beat = int(config.song_start_beat)
+        print(f"sn: {song_name}, ssb: {song_start_beat}", flush=True)
         threading.Timer(show_delay_ms / 1000, play_media).start()
         # send a timestamp of the show delay milliseconds from now when media.play starts to the LED server so it can match the light sequence
         requests.post(
             "http://localhost:5000/start",
-            params={
-                "song_name": available_songs_in_order[current_song_index],
+            json={
+                "song_name": song_name,
                 "playback_start_time": playback_start_time,
-                "song_start_beat": int(config.song_start_beat),
+                "song_start_beat": song_start_beat,
             },
         )
     except requests.exceptions.ConnectionError:
         print(connection_error_message)
+    return f"Now playing {song_name} and the corresponding LED sequence"
 
 
+@app.post("/stop")
 def stop_show():
     global media
     media.stop()
@@ -239,6 +271,7 @@ def stop_show():
         requests.post("http://localhost:5000/stop")
     except requests.exceptions.ConnectionError:
         print(connection_error_message)
+    return "Stopped the song and the LEDs"
 
 
 global button_A_lock, button_B_lock, button_L_lock, button_R_lock, button_U_lock, button_D_lock
@@ -262,6 +295,7 @@ def handle_buttons():
     # print(button_R.value)
     global available_songs_in_order
     global current_song_index
+    global song_name
     global song_type
     global button_A_lock
     global button_B_lock
@@ -299,7 +333,6 @@ def handle_buttons():
             current_song_index -= 1
             if current_song_index < 0:
                 current_song_index = len(available_songs_in_order) - 1
-            print(f"current song is {available_songs_in_order[current_song_index]}")
             display_current_song()
             # if a song is playing
             if media.is_playing():
@@ -312,7 +345,6 @@ def handle_buttons():
         current_song_index += 1
         if current_song_index >= len(available_songs_in_order):
             current_song_index = 0
-        print(f"current song is {available_songs_in_order[current_song_index]}")
         display_current_song()
         # if a song is playing
         if media.is_playing():
@@ -325,6 +357,8 @@ def handle_buttons():
         song_type = "concert" if song_type == "busking" else "busking"
         update_song_medias_in_order()
         display_current_mode()
+
+    # print(f"current song is {song_name}")
 
     # allow additional events once released
 
@@ -349,6 +383,22 @@ def handle_buttons():
 
 display_current_song()
 
-while True:
-    handle_buttons()
-    time.sleep(0.1)
+
+@app.get("/status")
+def status():
+    return "Flask song server is running"
+
+
+# start a separate thread for handling buttons; otherwise the while loop will lock up the server even with the sleeps
+class ButtonHandlingThread(threading.Thread):
+    def __init__(self, name="button_handling_thread"):
+        super(ButtonHandlingThread, self).__init__(name=name)
+        self.start()
+
+    def run(self):
+        while True:
+            handle_buttons()
+            time.sleep(0.1)
+
+
+buttonHandlingThread = ButtonHandlingThread()

@@ -2,6 +2,17 @@
 
 ## Hardware
 
+### LEDs
+
+WS2811 chip is the same chip used on Neopixels. there are so many quirks:
+
+-   if you have 5V LEDs, a 3.3V control signal is enough to control them. if you have 12V or 24V LEDs, you need a 5V control signal
+-   the Raspberry Pi GPIO pins output a 3.3V signal, so you need to use a chip like the Adafruit NeoPixel Driver BFF (although in theory a STD10NM60N N-Channel MOSFET will also work)
+-   not sure if this is absolutely necessary for a clean signal but adding a 1000uF 35V capacitor across the 24V power lessened flickering (voltage needs to be higher than LEDs are using, and higher uF is better but after 1000 you get diminishing marginal returns)
+-   the main thing that removed all flickering is a resistor between the 5V translated control signal and the first LED
+
+### General
+
 breadboards aren't designed to handle large currents, so avoid using them for power going to Neopixels, boards, etc.
 
 ## OS
@@ -31,6 +42,14 @@ set between 0 and 65536; quality tends to degrade after about 55000 though so ju
 40000 is actually pretty good and more or less matches max volume on the MacBook (as of Nov 2023)
 
 you may need to stop the python3 script using another terminal (if Ctrl + C doesn't work)
+
+### SPI
+
+SPI needs to be enabled before it is used (see https://raspberrypi.stackexchange.com/questions/127793/raspberry-pi-4b-no-dev-spidev0-0)
+
+Valid SPI ports:((0, 11, 10, 9), (1, 21, 20, 19), (2, 42, 41, 40))
+
+interactive pin diagram: https://pinout.xyz/
 
 ### Python
 
@@ -146,6 +165,6 @@ VLC cannot be run as `sudo`! including in a Python VLC script (if the Python fil
 cvlc -vvv --no-video
 ```
 
-- `cvlc` runs VLC headless (no GUI)
-- `-vvv` max level of debugging
-- `--no-video` disables video playback/output
+-   `cvlc` runs VLC headless (no GUI)
+-   `-vvv` max level of debugging
+-   `--no-video` disables video playback/output

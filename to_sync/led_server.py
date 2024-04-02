@@ -4,9 +4,12 @@
 # LED controller for NeoPixels on Raspberry Pi
 
 import board
+import busio
 import flask
+import flask_cors
 import math
 import neopixel
+import neopixel_spi
 import random
 import threading
 import time
@@ -16,7 +19,7 @@ import config
 import utils
 
 app = flask.Flask(__name__)
-app.debug = True
+flask_cors.CORS(app)
 
 global should_loop, ledThread, song_name, sequence_module, song, playback_start_time, song_start_beat
 should_loop = False
@@ -28,18 +31,28 @@ pixel_pin = board.D21
 
 # The order of the pixel colors - RGB or GRB. Some NeoPixels have red and green reversed!
 # For RGBW NeoPixels, simply change the ORDER to RGBW or GRBW.
-ORDER = neopixel.GRB
+ORDER = neopixel.RGB
 
+# busio.SPI(board.D21, board.D20, board.D19)
+
+# pixels = neopixel_spi.NeoPixel_SPI(
+#     board.SPI(),
+#     config.num_pixels,
+#     bpp=3,
+#     brightness=config.led_brightness,
+#     auto_write=False,
+#     pixel_order=ORDER,
+# )
 pixels = neopixel.NeoPixel(
-    pixel_pin, config.num_pixels, brightness=0.1, auto_write=False, pixel_order=ORDER
+    pixel_pin,
+    config.num_pixels,
+    brightness=config.led_brightness,
+    auto_write=False,
+    pixel_order=ORDER,
 )
 
 
 class LEDThread(threading.Thread):
-    # params:
-    # song_measure_ms: how many milliseconds are in each measure of this particular song
-    # playback_start_time: when we should start the light sequence
-    # song_start_beat: the beat of the song where playback should start
     def __init__(self):
         super(LEDThread, self).__init__()
         self.start()
@@ -54,13 +67,13 @@ class LEDThread(threading.Thread):
             if not should_loop:
                 # pixels.fill((0, 0, 0))
                 # pixels.show()
-                # time.sleep(0.01)
+                time.sleep(0.01)
                 continue
                 # print("stopping light sequence")
                 # return
             # don't start the light sequence until playback has started
             if utils.get_now_millis() < playback_start_time:
-                time.sleep(0.001)
+                time.sleep(0.01)
                 continue
 
             # start blank by default
@@ -112,7 +125,17 @@ modules = {}
 
 
 @app.get("/")
-def hello_world():
+def home():
+    return flask.send_file("static/index.html")
+
+
+@app.get("/<path:path>")
+def send_static_files(path):
+    return flask.send_from_directory("static", path)
+
+
+@app.get("/status")
+def status():
     return "Flask LED server is running"
 
 
@@ -124,17 +147,28 @@ def load_modules():
     return "successfully loaded modules"
 
 
+# params:
+# song_name: the filename of the song with no extension
+# playback_start_time: when we should start the light sequence
+# song_start_beat: the beat of the song where playback should start
 @app.post("/start")
 def start_sequence():
     global should_loop, song_name, sequence_module, song_skip_ms, playback_start_time, song_start_beat
-    song_name = flask.request.args.get("song_name")
-    playback_start_time = int(flask.request.args.get("playback_start_time"))
-    song_start_beat = int(flask.request.args.get("song_start_beat"))
+    song_name = flask.request.json["song_name"]
+    playback_start_time = int(flask.request.json["playback_start_time"])
+    print(f"pst: {playback_start_time}", flush=True)
+    song_start_beat = int(
+        flask.request.json["song_start_beat"]
+        if "song_start_beat" in flask.request.json
+        else config.song_start_beat
+    )
+    print(f"ssb: {song_start_beat}", flush=True)
     sequence_module = modules[song_name]
     if hasattr(sequence_module, "song_timing"):
         song_skip_ms = song_start_beat * sequence_module.song_timing["song_beat_ms"]
     else:
         song_skip_ms = sequence_module.beats_to_ms(song_start_beat)
+    print(f"ssms: {song_skip_ms}", flush=True)
     # reset if needed
     if hasattr(sequence_module, "init"):
         sequence_module.init()
