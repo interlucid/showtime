@@ -4,6 +4,8 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Interlucid's super secret high-tech LED controller</title>
         <link rel="stylesheet" href="/bootstrap.min.css" />
+        <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" href="/favicon.png" />
     </head>
     <body>
         <div class="container py-5">
@@ -11,7 +13,16 @@
                 Interlucid's super secret high-tech LED controller
             </h1>
             <h2>Current song</h2>
-            <p id="current-song" class="text-capitalize fs-1 fw-bold"></p>
+            <p id="current-song" class="fs-1 fw-bold"></p>
+            <p id="current-notes" class="fs-3"></p>
+            <div
+                id="request-alert"
+                class="alert alert-danger"
+                role="alert"
+                hidden
+            >
+                Request failed
+            </div>
             <div class="mb-3">
                 <button id="play-song" class="btn btn-success p-5 fs-2">
                     Play
@@ -46,35 +57,59 @@
     <script type="module">
         const songListResponse = await fetch(`/song_list.json`);
         const songList = await songListResponse.json();
+        const songDataResponse = await fetch(`/song_data.json`);
+        const songData = await songDataResponse.json();
         let currentSongIndex = 0;
 
         const formatSongTitle = (unformattedSongTitle) => {
             return unformattedSongTitle.replace(/_/g, " ");
         };
-        const host = `http://192.168.4.34:5001`;
+        // const host = `http://192.168.4.34:5001`;
+        const host = `${location.protocol}//${location.hostname}:5001`;
 
-        const playSong = () => {
+        const showError = (error) => {
+            document.getElementById(`request-alert`).hidden = false;
+            console.log(error);
+        };
+
+        const hideError = () => {
+            document.getElementById(`request-alert`).hidden = true;
+        };
+
+        const playSong = async () => {
             const song_start_measure =
                 document.getElementById(`song-measure`).value;
-            fetch(`${host}/play`, {
-                method: `POST`,
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    song_name: songList[currentSongIndex],
-                    song_start_beat: song_start_measure * 4,
-                }),
-            });
+            try {
+                await fetch(`${host}/play`, {
+                    method: `POST`,
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        song_name: songList[currentSongIndex],
+                        song_start_beat: song_start_measure * 4,
+                    }),
+                    signal: AbortSignal.timeout(1000),
+                });
+                hideError();
+            } catch (error) {
+                showError(error);
+            }
         };
         document
             .getElementById(`play-song`)
             .addEventListener(`click`, playSong);
 
         const stopSong = () => {
-            fetch(`${host}/stop`, {
-                method: `POST`,
-            });
+            try {
+                fetch(`${host}/stop`, {
+                    method: `POST`,
+                    signal: AbortSignal.timeout(1000),
+                });
+                hideError();
+            } catch (error) {
+                showError(error);
+            }
         };
         document
             .getElementById(`stop-song`)
@@ -99,15 +134,17 @@
             .addEventListener(`click`, nextSong);
 
         const updateSongDisplay = () => {
-            const currentSong = formatSongTitle(songList[currentSongIndex]);
+            const currentSong = songData[songList[currentSongIndex]].title;
+            const currentNotes = songData[songList[currentSongIndex]].notes;
             document.getElementById(`current-song`).textContent = currentSong;
+            document.getElementById(`current-notes`).textContent = currentNotes;
         };
 
         updateSongDisplay();
 
         for (let song of songList) {
             const listItem = document.createElement(`li`);
-            listItem.textContent = formatSongTitle(song);
+            listItem.textContent = songData[song].title;
             document.getElementById(`setlist`).appendChild(listItem);
         }
     </script>

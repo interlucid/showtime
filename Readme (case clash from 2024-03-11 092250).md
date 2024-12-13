@@ -1,3 +1,0 @@
-# showtime
-
-![showtime](showtime.gif)

@@ -273,8 +273,19 @@ def fill_pixels_in_four_split_mirror_range(
 
 
 # for stuff like the dyoo in Dream Killa and all of Unlimited
-def get_exponential_dropoff(x, exponent=2 / 5):
-    return round((config.num_pixels - 1) * (-(x**exponent) + 1))
+# default speed is fast at first then slow, invert is slow then fast
+# default direction is higher numbered pixels then lower, invert is low then high
+def get_exponential_dropoff(
+    x, exponent=2 / 5, invert_speed=False, invert_direction=False
+):
+    return round(
+        (config.num_pixels - 1)
+        * (
+            (1 if invert_direction else -1)
+            * (max(x, 0) ** (1 / exponent if invert_speed else exponent))
+            + (0 if invert_direction else 1)
+        )
+    )
 
 
 # ease in and out (for the woo in Your Dream)

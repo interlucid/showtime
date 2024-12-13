@@ -1,8 +1,6 @@
-import math
-
 import config
-import utils
 import parse_midi
+import utils
 
 song_name = "just_cant_find_it"
 bpm = 90

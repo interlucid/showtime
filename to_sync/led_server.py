@@ -96,6 +96,10 @@ class LEDThread(threading.Thread):
             # play the current frame of the sequence
             try:
                 sequence_module.play_current_frame(sequence_config)
+                # clear dark pixels
+                utils.fill_pixels_in_range(
+                    pixels, config.dark_pixels_start, config.dark_pixels_end, (0, 0, 0)
+                )
             except Exception:
                 traceback.print_exc()
                 should_loop = False
